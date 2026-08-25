@@ -17,6 +17,10 @@
     "type": "git",
     "url": "https://github.com/andrey-karasev-gmail/outlook-mcp-server.git"
   },
+  "homepage": "https://web4w3.com/projects/outlook-mcp-server",
+  "bugs": {
+    "url": "https://github.com/andrey-karasev-gmail/outlook-mcp-server/issues"
+  },
   "publishConfig": {
     "access": "public"
   },
