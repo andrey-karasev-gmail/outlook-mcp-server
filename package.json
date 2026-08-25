@@ -1,9 +1,25 @@
 {
-  "name": "outlook-mcp-server",
+  "name": "@web4w3/outlook-mcp-server",
   "version": "1.0.0",
   "description": "MCP server for Outlook.com email read/delete/mark operations via Microsoft Graph API",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "outlook-mcp-server": "dist/index.js",
+    "outlook-mcp-server-get-auth-token": "scripts/get-auth-token.js"
+  },
+  "files": [
+    "dist",
+    "scripts/get-auth-token.js",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/andrey-karasev-gmail/outlook-mcp-server.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",

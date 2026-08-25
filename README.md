@@ -61,6 +61,9 @@ You'll need to perform a one-time authorization flow. Use this script:
 # Generate auth URL
 node scripts/get-auth-token.js
 
+# Or, with no cloning, using the published package:
+npx --package=@web4w3/outlook-mcp-server outlook-mcp-server-get-auth-token
+
 # Follow the link to login and copy the authorization code
 # Then exchange it for a refresh token
 ```
@@ -70,10 +73,10 @@ Or use the Microsoft Graph explorer at https://developer.microsoft.com/en-us/gra
 ### 6. Install
 
 ```bash
-npx -y @web4w3/install outlook
+npx -y @web4w3/outlook-mcp-server
 ```
 
-No cloning or build step needed. The package is pre-compiled and available on npm as [`@web4w3/install`](https://www.npmjs.com/package/@web4w3/install).
+No cloning or build step needed. The package is pre-compiled and available on npm as [`@web4w3/outlook-mcp-server`](https://www.npmjs.com/package/@web4w3/outlook-mcp-server).
 
 ### 7. Configure in Claude Desktop
 
@@ -84,7 +87,7 @@ Add to your `claude_desktop_config.json`:
   "mcpServers": {
     "outlook": {
       "command": "npx",
-      "args": ["-y", "@web4w3/install", "outlook"],
+      "args": ["-y", "@web4w3/outlook-mcp-server"],
       "env": {
         "OUTLOOK_CLIENT_ID": "your_client_id",
         "OUTLOOK_CLIENT_SECRET": "your_client_secret",

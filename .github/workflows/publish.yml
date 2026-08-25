@@ -1,0 +1,47 @@
+name: Publish to npm
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  id-token: write # required for npm trusted publishing (OIDC) — no NPM_TOKEN needed
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24' # trusted publishing needs npm >=11.5.1 / Node >=22.14.0; 24 covers both
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Bump patch version (not committed yet)
+        run: npm version patch --no-git-tag-version
+
+      # No token: the npm CLI exchanges this job's OIDC token for a short-lived publish
+      # token itself, once the trusted publisher (this repo + this workflow file) is
+      # configured in the package's npmjs.com settings. Also gets provenance attestations
+      # for free — trusted publishing generates those automatically, no --provenance flag.
+      - name: Publish to npm
+        run: npm publish
+
+      # Only reached if publish succeeded, so a failed publish never leaves main out of
+      # sync with what's actually on the registry. Uses the default GITHUB_TOKEN (not a
+      # PAT) for the push-back, which GitHub does not use to re-trigger this same `on:
+      # push` workflow, so there's no infinite-loop risk here.
+      - name: Commit and tag the version bump
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "chore: release v$VERSION"
+          git tag "v$VERSION"
+          git push origin main --follow-tags
