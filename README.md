@@ -118,6 +118,45 @@ The endpoint is stateless; each request is independent. Keep it behind a
 private tunnel or a TLS-terminating proxy — do not expose it to the open
 internet without one.
 
+## Token lifecycle
+
+The server authenticates with a delegated refresh token and manages it
+carefully, because Microsoft **rotates** refresh tokens: most token
+responses carry a new refresh token and the old one is eventually
+invalidated. Relying on a static token from `.env` therefore breaks
+sooner or later — this is how the server avoids that:
+
+- **Seed**: `OUTLOOK_REFRESH_TOKEN` in `.env` is only the starting
+  point, minted once with `scripts/get-auth-token.js`.
+- **State file**: whenever a token response contains a new refresh
+  token, it is adopted in memory and persisted atomically (temp file +
+  rename, permissions `0600`) to a JSON state file:
+  `{"refreshToken": "…", "updatedAt": "<ISO timestamp>"}`.
+  Location: the `OUTLOOK_TOKEN_STATE_PATH` environment variable when
+  set, otherwise `<working directory>/data/refresh-token.json`.
+- **Precedence**: at startup the state file wins over the `.env` seed —
+  it holds the freshest token. A missing or corrupt state file falls
+  back to the seed with a warning on stderr; if neither source has a
+  token, startup fails as before. If `.env` has no refresh token but a
+  valid state file exists, the server still starts.
+- **Access tokens** are cached in memory and reused until 5 minutes
+  before they expire; concurrent refreshes share one request.
+- **Retries**: the token request is retried up to 3 attempts with
+  backoff (~0.5s, then ~2s) on transient failures only — network
+  errors, HTTP 429 and HTTP 5xx. OAuth errors such as `invalid_grant`
+  are never retried.
+- **Recovery**: if the stored refresh token dies (revoked, expired, or
+  superseded by a rotation whose write was lost), tool calls fail with
+  an `invalid_grant` error saying so. Re-run
+  `scripts/get-auth-token.js`, put the new token into
+  `OUTLOOK_REFRESH_TOKEN` in `.env`, and delete the state file so the
+  fresh seed is used; then restart the server.
+
+Operational notes: keep the state file on durable storage (for a
+systemd deployment, the service's working directory), and do not copy
+an old state file over a newer one — the older refresh token in it may
+already be invalidated.
+
 ## Available Tools
 
 ### `outlook_list_folders`
@@ -333,6 +372,8 @@ Check that all required `.env` variables are set correctly.
 - Verify your Client ID, Client Secret, and Refresh Token are correct
 - Check that your Azure app registration has the required permissions
 - Ensure the refresh token hasn't expired (refresh tokens expire if unused for 90 days)
+- If calls fail with `invalid_grant`, the stored token died — see
+  [Token lifecycle](#token-lifecycle) for the recovery steps
 
 ### "Permission denied"
 Make sure the API permissions in your Azure app registration include:
