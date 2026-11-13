@@ -25,6 +25,9 @@ export interface OutlookConfig {
   clientSecret: string;
   tenantId: string;
   refreshToken?: string;
+  /** Path of the JSON state file holding the latest rotated refresh
+   * token. Defaults to <cwd>/data/refresh-token.json when unset. */
+  tokenStatePath?: string;
   mailbox: string;
   batchSize: number;
   /** MCP transport: "stdio" (default, local) or "http" (remote, for hosting). */
@@ -51,6 +54,7 @@ export function getConfig(): OutlookConfig {
     clientSecret: requireEnv("OUTLOOK_CLIENT_SECRET"),
     tenantId: process.env.OUTLOOK_TENANT_ID || "common",
     refreshToken: process.env.OUTLOOK_REFRESH_TOKEN,
+    tokenStatePath: process.env.OUTLOOK_TOKEN_STATE_PATH?.trim() || undefined,
     mailbox: process.env.OUTLOOK_MAILBOX?.trim() || "Inbox",
     batchSize: parseNumber("OUTLOOK_BATCH_SIZE", 20),
     transport: parseTransport(),

@@ -11,12 +11,16 @@ import type {
 } from "./types/email.js";
 import type { EmailClient } from "./clients/client.js";
 import { GraphEmailClient } from "./clients/graphClient.js";
+import type { TokenRequestFn } from "./clients/tokenManager.js";
 
 export class OutlookService {
   private readonly graphClient: EmailClient;
 
-  constructor(private readonly config: OutlookConfig) {
-    this.graphClient = new GraphEmailClient(config);
+  constructor(
+    private readonly config: OutlookConfig,
+    tokenRequestFn?: TokenRequestFn
+  ) {
+    this.graphClient = new GraphEmailClient(config, tokenRequestFn);
   }
 
   listEmails(limit: number, folder?: string): Promise<EmailSummary[]> {

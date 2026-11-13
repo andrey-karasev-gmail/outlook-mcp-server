@@ -1,5 +1,10 @@
-import https from "https";
 import { Client } from "@microsoft/microsoft-graph-client";
+import {
+  TokenManager,
+  defaultTokenStatePath,
+  isScopeConsentError,
+  type TokenRequestFn
+} from "./tokenManager.js";
 import type {
   EmailDetail,
   EmailSummary,
@@ -31,11 +36,24 @@ function toDateTimeTimeZone(
 export class GraphEmailClient implements EmailClient {
   private graphClient: Client;
   private readonly config: OutlookConfig;
+  private readonly tokenManager: TokenManager;
 
-  constructor(config: OutlookConfig) {
+  constructor(config: OutlookConfig, tokenRequestFn?: TokenRequestFn) {
     this.config = config;
 
-    if (!this.config.refreshToken) {
+    // The effective refresh token may come from the token state file
+    // (freshest, rotated) even when .env carries no seed; the missing-
+    // token error below only fires when neither source has one.
+    this.tokenManager = new TokenManager({
+      clientId: config.clientId,
+      clientSecret: config.clientSecret,
+      tenantId: config.tenantId,
+      seedRefreshToken: config.refreshToken,
+      stateFilePath: config.tokenStatePath ?? defaultTokenStatePath(),
+      requestFn: tokenRequestFn
+    });
+
+    if (!this.tokenManager.hasRefreshToken()) {
       throw new Error(
         "Missing OUTLOOK_REFRESH_TOKEN in environment. Delegated authentication requires a refresh token."
       );
@@ -58,71 +76,27 @@ export class GraphEmailClient implements EmailClient {
   private async getAccessToken(): Promise<string> {
     const baseScope = "offline_access mail.read mail.readwrite";
     if (this.scopeMode === "base") {
-      return this.requestToken(baseScope);
+      return this.tokenManager.getAccessToken(baseScope);
     }
     try {
-      const token = await this.requestToken(
+      const token = await this.tokenManager.getAccessToken(
         `${baseScope} mailboxsettings.readwrite`
       );
       this.scopeMode = "extended";
       return token;
-    } catch {
+    } catch (error) {
+      if (!isScopeConsentError(error)) {
+        // Transient failures (network, 429, 5xx) and dead tokens surface
+        // as errors; they must not silently downgrade the scope set.
+        throw error;
+      }
       // The refresh token predates the MailboxSettings consent (or the app
       // registration does not grant it): fall back to the original scope so
       // the mail tools keep working. Category and rule calls will surface a
       // Graph 403 until a token is re-minted with the wider scope.
       this.scopeMode = "base";
-      return this.requestToken(baseScope);
+      return this.tokenManager.getAccessToken(baseScope);
     }
-  }
-
-  private requestToken(scope: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const postData = new URLSearchParams({
-        client_id: this.config.clientId,
-        client_secret: this.config.clientSecret,
-        refresh_token: this.config.refreshToken || "",
-        grant_type: "refresh_token",
-        scope
-      }).toString();
-
-      const options = {
-        hostname: "login.microsoftonline.com",
-        path: `/${this.config.tenantId}/oauth2/v2.0/token`,
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Content-Length": Buffer.byteLength(postData)
-        }
-      };
-
-      const req = https.request(options, (res) => {
-        let body = "";
-        res.on("data", (chunk) => {
-          body += chunk;
-        });
-        res.on("end", () => {
-          try {
-            const parsed = JSON.parse(body);
-            if (res.statusCode === 200 && parsed.access_token) {
-              resolve(parsed.access_token);
-            } else {
-              reject(
-                new Error(
-                  `Failed to acquire access token: ${parsed.error_description || body}`
-                )
-              );
-            }
-          } catch (err) {
-            reject(err);
-          }
-        });
-      });
-
-      req.on("error", reject);
-      req.write(postData);
-      req.end();
-    });
   }
 
   async listEmails(limit: number, folder: string = "inbox"): Promise<EmailSummary[]> {
