@@ -1,5 +1,14 @@
 import type { OutlookConfig } from "./config.js";
-import type { EmailDetail, EmailSummary, AttachmentSummary } from "./types/email.js";
+import type {
+  EmailDetail,
+  EmailSummary,
+  AttachmentSummary,
+  FlagUpdate,
+  MailCategory,
+  CategorizeUpdate,
+  CreateRuleInput,
+  MailRule
+} from "./types/email.js";
 import type { EmailClient } from "./clients/client.js";
 import { GraphEmailClient } from "./clients/graphClient.js";
 
@@ -43,5 +52,33 @@ export class OutlookService {
 
   getAttachmentContent(messageId: string, attachmentId: string) {
     return this.graphClient.getAttachmentContent(messageId, attachmentId);
+  }
+
+  flagEmail(id: string, flag: FlagUpdate): Promise<void> {
+    return this.graphClient.flagEmail(id, flag);
+  }
+
+  listCategories(): Promise<MailCategory[]> {
+    return this.graphClient.listCategories();
+  }
+
+  createCategory(displayName: string, color: string): Promise<MailCategory> {
+    return this.graphClient.createCategory(displayName, color);
+  }
+
+  categorizeEmail(id: string, update: CategorizeUpdate): Promise<string[]> {
+    return this.graphClient.categorizeEmail(id, update);
+  }
+
+  listRules(): Promise<MailRule[]> {
+    return this.graphClient.listRules();
+  }
+
+  createRule(rule: CreateRuleInput): Promise<MailRule> {
+    return this.graphClient.createRule(rule);
+  }
+
+  deleteRule(ruleId: string): Promise<void> {
+    return this.graphClient.deleteRule(ruleId);
   }
 }

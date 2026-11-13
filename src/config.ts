@@ -27,6 +27,22 @@ export interface OutlookConfig {
   refreshToken?: string;
   mailbox: string;
   batchSize: number;
+  /** MCP transport: "stdio" (default, local) or "http" (remote, for hosting). */
+  transport: "stdio" | "http";
+  httpPort: number;
+  /** Shared secret required as a Bearer token when transport is "http". */
+  httpToken?: string;
+}
+
+function parseTransport(): "stdio" | "http" {
+  const raw = process.env.MCP_TRANSPORT?.trim().toLowerCase();
+  if (!raw || raw === "stdio") {
+    return "stdio";
+  }
+  if (raw === "http") {
+    return "http";
+  }
+  throw new Error(`Invalid MCP_TRANSPORT: ${raw} (expected "stdio" or "http")`);
 }
 
 export function getConfig(): OutlookConfig {
@@ -36,6 +52,9 @@ export function getConfig(): OutlookConfig {
     tenantId: process.env.OUTLOOK_TENANT_ID || "common",
     refreshToken: process.env.OUTLOOK_REFRESH_TOKEN,
     mailbox: process.env.OUTLOOK_MAILBOX?.trim() || "Inbox",
-    batchSize: parseNumber("OUTLOOK_BATCH_SIZE", 20)
+    batchSize: parseNumber("OUTLOOK_BATCH_SIZE", 20),
+    transport: parseTransport(),
+    httpPort: parseNumber("MCP_HTTP_PORT", 3000),
+    httpToken: process.env.MCP_HTTP_TOKEN?.trim() || undefined
   };
 }

@@ -10,6 +10,9 @@ A Model Context Protocol (MCP) server for accessing and managing Outlook.com ema
 - **Mark emails**: Set emails as read/unread
 - **Move emails**: Transfer emails to other folders
 - **Attachments**: List and download email attachments
+- **Flags**: Set, complete, or clear follow-up flags (with optional due dates)
+- **Categories**: List/create categories and apply them to emails
+- **Inbox rules**: List, create, and delete server-side Inbox rules
 
 ## Setup
 
@@ -45,6 +48,7 @@ A Model Context Protocol (MCP) server for accessing and managing Outlook.com ema
    - `Mail.Read`
    - `Mail.ReadWrite`
    - `Mail.Send`
+   - `MailboxSettings.ReadWrite` (for categories and Inbox rules; flags work with `Mail.ReadWrite` alone)
 5. Click **Grant admin consent** (if you're in an organization)
 
 ### 4. Get Your Credentials
@@ -98,6 +102,21 @@ Add to your `claude_desktop_config.json`:
   }
 }
 ```
+
+### Remote (HTTP) mode
+
+By default the server speaks MCP over stdio for a client on the same machine.
+To host it instead (for example on an always-on home server behind a tunnel):
+
+```bash
+MCP_TRANSPORT=http MCP_HTTP_PORT=3000 MCP_HTTP_TOKEN=<redacted> npm start
+```
+
+The server then listens for Streamable HTTP MCP requests on `/mcp` and
+requires the token as `Authorization: Bearer <token>` on every request.
+The endpoint is stateless; each request is independent. Keep it behind a
+private tunnel or a TLS-terminating proxy — do not expose it to the open
+internet without one.
 
 ## Available Tools
 
@@ -190,6 +209,94 @@ Download attachment content (base64 encoded).
 
 ---
 
+### `outlook_flag_email`
+Set, complete, or clear the follow-up flag on an email.
+
+**Parameters:**
+- `id` (string, required): Email message ID
+- `status` (string, required): `flagged`, `complete`, or `notFlagged`
+- `dueDateTime` (string, optional): ISO date or datetime, only with `flagged`
+- `startDateTime` (string, optional): ISO date or datetime, only with `flagged`
+- `timeZone` (string, optional): Time zone for the dates (default `UTC`)
+
+**Returns:** Confirmation message
+
+---
+
+### `outlook_list_categories`
+List all categories from the master category list.
+
+**Returns:** Array of categories with `id`, `displayName`, and `color`
+
+---
+
+### `outlook_create_category`
+Create a new category in the master category list.
+
+**Parameters:**
+- `displayName` (string, required): Category name
+- `color` (string, optional): `none` or a preset `preset0`–`preset24` (default `preset0`)
+
+**Returns:** The created category
+
+---
+
+### `outlook_categorize_email`
+Change the categories of an email.
+
+**Parameters:**
+- `id` (string, required): Email message ID
+- `set` (string[], optional): Replace the whole category list
+- `add` (string[], optional): Add categories to the current ones
+- `remove` (string[], optional): Remove categories from the current ones
+
+**Returns:** The resulting list of categories on the email
+
+---
+
+### `outlook_list_rules`
+List all Inbox rules (server-side rules that act on incoming mail).
+
+**Returns:** Array of rules with `id`, `displayName`, `sequence`, `isEnabled`, `conditions`, and `actions`
+
+---
+
+### `outlook_create_rule`
+Create an Inbox rule. Rules run on the server and apply to incoming mail
+whether or not this server is running.
+
+**Parameters:**
+- `displayName` (string, required): Rule name
+- `isEnabled` (boolean, optional): Default `true`
+- `sequence` (number, optional): Evaluation order, lower runs first
+- Conditions (all optional; no conditions matches all mail):
+  - `fromAddresses` (string[]): Sender email addresses
+  - `senderContains` (string[]): Substrings to match in the sender
+  - `subjectContains` (string[]): Substrings to match in the subject
+  - `hasAttachments` (boolean)
+  - `importance` (string): `low`, `normal`, or `high`
+- Actions (at least one required):
+  - `moveToFolder` (string): Folder ID or display name (resolved like `outlook_move_email`)
+  - `markAsRead` (boolean)
+  - `markImportance` (string): `low`, `normal`, or `high`
+  - `assignCategories` (string[])
+  - `delete` (boolean)
+  - `stopProcessingRules` (boolean)
+
+**Returns:** The created rule
+
+---
+
+### `outlook_delete_rule`
+Delete an Inbox rule by its ID (see `outlook_list_rules`).
+
+**Parameters:**
+- `ruleId` (string, required): Rule ID
+
+**Returns:** Confirmation message
+
+---
+
 ## Integration with Email Analytics Agent
 
 This server is designed to work with the [Email Analytics Agent](https://github.com/andrey-karasev/email-analytics-agent), which provides:
@@ -231,6 +338,10 @@ Check that all required `.env` variables are set correctly.
 Make sure the API permissions in your Azure app registration include:
 - Mail.Read
 - Mail.ReadWrite
+- MailboxSettings.ReadWrite (categories and Inbox rules only; if this one is
+  missing, mail tools keep working and only the category/rule tools fail —
+  re-run the refresh-token step after adding the permission so the new token
+  carries it)
 
 ## License
 

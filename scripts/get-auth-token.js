@@ -57,7 +57,7 @@ function getAuthUrl() {
     `redirect_uri=${encodeURIComponent(REDIRECT_URI)}&` +
     `response_type=code&` +
     `response_mode=query&` +
-    `scope=${encodeURIComponent("openid profile offline_access Mail.Read Mail.ReadWrite")}&` +
+    `scope=${encodeURIComponent("openid profile offline_access Mail.Read Mail.ReadWrite MailboxSettings.ReadWrite")}&` +
     `prompt=select_account`;
 }
 
