@@ -1,8 +1,32 @@
 import https from "https";
 import { Client } from "@microsoft/microsoft-graph-client";
-import type { EmailDetail, EmailSummary, AttachmentSummary } from "../types/email.js";
+import type {
+  EmailDetail,
+  EmailSummary,
+  AttachmentSummary,
+  FlagUpdate,
+  MailCategory,
+  CategorizeUpdate,
+  CreateRuleInput,
+  MailRule
+} from "../types/email.js";
 import type { EmailClient, EmailAttachment } from "./client.js";
 import type { OutlookConfig } from "../config.js";
+
+/** Convert an ISO date/datetime into Graph's dateTimeTimeZone shape: the
+ * datetime itself must be zone-less, the zone travels in its own field. */
+function toDateTimeTimeZone(
+  value: string,
+  timeZone?: string
+): { dateTime: string; timeZone: string } {
+  let dateTime = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateTime)) {
+    dateTime = `${dateTime}T00:00:00`;
+  } else {
+    dateTime = dateTime.replace(/(Z|[+-]\d{2}:?\d{2})$/, "");
+  }
+  return { dateTime, timeZone: timeZone || "UTC" };
+}
 
 export class GraphEmailClient implements EmailClient {
   private graphClient: Client;
@@ -29,14 +53,37 @@ export class GraphEmailClient implements EmailClient {
     });
   }
 
-  private getAccessToken(): Promise<string> {
+  private scopeMode: "extended" | "base" | null = null;
+
+  private async getAccessToken(): Promise<string> {
+    const baseScope = "offline_access mail.read mail.readwrite";
+    if (this.scopeMode === "base") {
+      return this.requestToken(baseScope);
+    }
+    try {
+      const token = await this.requestToken(
+        `${baseScope} mailboxsettings.readwrite`
+      );
+      this.scopeMode = "extended";
+      return token;
+    } catch {
+      // The refresh token predates the MailboxSettings consent (or the app
+      // registration does not grant it): fall back to the original scope so
+      // the mail tools keep working. Category and rule calls will surface a
+      // Graph 403 until a token is re-minted with the wider scope.
+      this.scopeMode = "base";
+      return this.requestToken(baseScope);
+    }
+  }
+
+  private requestToken(scope: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const postData = new URLSearchParams({
         client_id: this.config.clientId,
         client_secret: this.config.clientSecret,
         refresh_token: this.config.refreshToken || "",
         grant_type: "refresh_token",
-        scope: "offline_access mail.read mail.readwrite"
+        scope
       }).toString();
 
       const options = {
@@ -145,28 +192,181 @@ export class GraphEmailClient implements EmailClient {
     }
   }
 
+  /** Resolve a folder display name to its ID, creating the folder if it does
+   * not exist yet. Values that already look like a Graph folder ID pass
+   * through unchanged. */
+  private async resolveFolderId(destinationFolder: string): Promise<string> {
+    if (destinationFolder.match(/^[A-Za-z0-9_=-]{20,}$/)) {
+      return destinationFolder;
+    }
+    const folders = await this.listFolders();
+    const match = folders.find(
+      (f) => f.displayName.toLowerCase() === destinationFolder.toLowerCase()
+    );
+    if (match) {
+      return match.id;
+    }
+    const created = await this.graphClient
+      .api("/me/mailFolders")
+      .post({ displayName: destinationFolder });
+    return created.id;
+  }
+
   async moveEmail(id: string, destinationFolder: string): Promise<void> {
     try {
-      // Resolve folder name to ID if not already an ID
-      let folderId = destinationFolder;
-      if (!destinationFolder.match(/^[A-Za-z0-9_=-]{20,}$/)) {
-        const folders = await this.listFolders();
-        const match = folders.find(
-          (f) => f.displayName.toLowerCase() === destinationFolder.toLowerCase()
-        );
-        if (match) {
-          folderId = match.id;
-        } else {
-          // Create the folder
-          const created = await this.graphClient
-            .api("/me/mailFolders")
-            .post({ displayName: destinationFolder });
-          folderId = created.id;
-        }
-      }
+      const folderId = await this.resolveFolderId(destinationFolder);
       await this.graphClient.api(`/me/messages/${id}/move`).post({ destinationId: folderId });
     } catch (error) {
       throw new Error(`Failed to move email ${id}: ${error}`);
+    }
+  }
+
+  async flagEmail(id: string, flag: FlagUpdate): Promise<void> {
+    try {
+      const followupFlag: Record<string, unknown> = { flagStatus: flag.status };
+      if (flag.status === "flagged") {
+        if (flag.startDateTime) {
+          followupFlag.startDateTime = toDateTimeTimeZone(flag.startDateTime, flag.timeZone);
+        }
+        if (flag.dueDateTime) {
+          followupFlag.dueDateTime = toDateTimeTimeZone(flag.dueDateTime, flag.timeZone);
+        }
+      }
+      await this.graphClient.api(`/me/messages/${id}`).patch({ flag: followupFlag });
+    } catch (error) {
+      throw new Error(`Failed to flag email ${id}: ${error}`);
+    }
+  }
+
+  async listCategories(): Promise<MailCategory[]> {
+    try {
+      const result = await this.graphClient.api("/me/outlook/masterCategories").get();
+      return result.value.map((c: any) => ({
+        id: c.id,
+        displayName: c.displayName,
+        color: c.color
+      }));
+    } catch (error) {
+      throw new Error(`Failed to list categories: ${error}`);
+    }
+  }
+
+  async createCategory(displayName: string, color: string): Promise<MailCategory> {
+    try {
+      const created = await this.graphClient
+        .api("/me/outlook/masterCategories")
+        .post({ displayName, color });
+      return { id: created.id, displayName: created.displayName, color: created.color };
+    } catch (error) {
+      throw new Error(`Failed to create category ${displayName}: ${error}`);
+    }
+  }
+
+  async categorizeEmail(id: string, update: CategorizeUpdate): Promise<string[]> {
+    try {
+      let categories: string[];
+      if (update.set) {
+        categories = [...new Set(update.set)];
+      } else {
+        const message = await this.graphClient
+          .api(`/me/messages/${id}`)
+          .select("categories")
+          .get();
+        categories = [...((message.categories as string[] | undefined) ?? [])];
+        for (const name of update.add ?? []) {
+          if (!categories.some((c) => c.toLowerCase() === name.toLowerCase())) {
+            categories.push(name);
+          }
+        }
+        if (update.remove?.length) {
+          const removing = new Set(update.remove.map((n) => n.toLowerCase()));
+          categories = categories.filter((c) => !removing.has(c.toLowerCase()));
+        }
+      }
+      await this.graphClient.api(`/me/messages/${id}`).patch({ categories });
+      return categories;
+    } catch (error) {
+      throw new Error(`Failed to categorize email ${id}: ${error}`);
+    }
+  }
+
+  async listRules(): Promise<MailRule[]> {
+    try {
+      const result = await this.graphClient.api("/me/mailFolders/inbox/messageRules").get();
+      return result.value.map((r: any) => this.mapToMailRule(r));
+    } catch (error) {
+      throw new Error(`Failed to list inbox rules: ${error}`);
+    }
+  }
+
+  async createRule(rule: CreateRuleInput): Promise<MailRule> {
+    try {
+      if (!rule.actions || Object.keys(rule.actions).length === 0) {
+        throw new Error("A rule needs at least one action");
+      }
+
+      const conditions: Record<string, unknown> = {};
+      if (rule.conditions?.fromAddresses?.length) {
+        conditions.fromAddresses = rule.conditions.fromAddresses.map((address) => ({
+          emailAddress: { address }
+        }));
+      }
+      if (rule.conditions?.senderContains?.length) {
+        conditions.senderContains = rule.conditions.senderContains;
+      }
+      if (rule.conditions?.subjectContains?.length) {
+        conditions.subjectContains = rule.conditions.subjectContains;
+      }
+      if (rule.conditions?.hasAttachments !== undefined) {
+        conditions.hasAttachments = rule.conditions.hasAttachments;
+      }
+      if (rule.conditions?.importance) {
+        conditions.importance = rule.conditions.importance;
+      }
+
+      const actions: Record<string, unknown> = {};
+      if (rule.actions.moveToFolder) {
+        actions.moveToFolder = await this.resolveFolderId(rule.actions.moveToFolder);
+      }
+      if (rule.actions.markAsRead !== undefined) {
+        actions.markAsRead = rule.actions.markAsRead;
+      }
+      if (rule.actions.markImportance) {
+        actions.markImportance = rule.actions.markImportance;
+      }
+      if (rule.actions.assignCategories?.length) {
+        actions.assignCategories = rule.actions.assignCategories;
+      }
+      if (rule.actions.delete !== undefined) {
+        actions.delete = rule.actions.delete;
+      }
+      if (rule.actions.stopProcessingRules !== undefined) {
+        actions.stopProcessingRules = rule.actions.stopProcessingRules;
+      }
+      if (Object.keys(actions).length === 0) {
+        throw new Error("A rule needs at least one action");
+      }
+
+      const created = await this.graphClient
+        .api("/me/mailFolders/inbox/messageRules")
+        .post({
+          displayName: rule.displayName,
+          sequence: rule.sequence ?? 1,
+          isEnabled: rule.isEnabled ?? true,
+          conditions,
+          actions
+        });
+      return this.mapToMailRule(created);
+    } catch (error) {
+      throw new Error(`Failed to create inbox rule ${rule.displayName}: ${error}`);
+    }
+  }
+
+  async deleteRule(ruleId: string): Promise<void> {
+    try {
+      await this.graphClient.api(`/me/mailFolders/inbox/messageRules/${ruleId}`).delete();
+    } catch (error) {
+      throw new Error(`Failed to delete inbox rule ${ruleId}: ${error}`);
     }
   }
 
@@ -214,6 +414,17 @@ export class GraphEmailClient implements EmailClient {
         `Failed to get attachment ${attachmentId} content: ${error}`
       );
     }
+  }
+
+  private mapToMailRule(rule: any): MailRule {
+    return {
+      id: rule.id,
+      displayName: rule.displayName,
+      sequence: rule.sequence,
+      isEnabled: rule.isEnabled,
+      conditions: rule.conditions,
+      actions: rule.actions
+    };
   }
 
   private mapToEmailSummary(msg: any): EmailSummary {
