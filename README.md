@@ -25,41 +25,72 @@ A Model Context Protocol (MCP) server for accessing and managing Outlook.com ema
 ### 1. Register Azure Application
 
 1. Go to [Azure Portal](https://portal.azure.com)
-2. Navigate to **Azure Active Directory** > **App registrations**
+2. Navigate to **Microsoft Entra ID** (formerly Azure Active Directory) > **App registrations**
 3. Click **New registration**
 4. Fill in the details:
    - Name: `Outlook MCP Server`
    - Supported account types: `Accounts in any organizational directory and personal Microsoft accounts`
 5. Click **Register**
 
-### 2. Create Client Secret
+### 2. Add the Redirect URI
+
+The one-time token script (`scripts/get-auth-token.js`) receives the
+authorization code on a local callback, so the app registration must
+whitelist that exact address — without it, sign-in fails with a
+redirect-URI mismatch error (AADSTS50011).
+
+1. In your app registration, go to **Authentication**
+2. Click **Add a platform** > **Web**
+3. Enter the redirect URI: `http://localhost:3000/callback`
+4. Leave the implicit-grant checkboxes **off** and click **Configure**
+
+No other platform (mobile/desktop, SPA) is needed.
+
+### 3. Create Client Secret
 
 1. In your app registration, go to **Certificates & secrets**
 2. Click **New client secret**
 3. Add a description and select expiration
 4. Copy the **Value** (you'll need this as `OUTLOOK_CLIENT_SECRET`)
 
-### 3. Set API Permissions
+### 4. Set API Permissions
 
 1. In your app registration, go to **API permissions**
 2. Click **Add a permission** > **Microsoft Graph**
 3. Select **Delegated permissions**
 4. Search and add these permissions:
+   - `offline_access` — **required for unattended operation**: without it
+     Microsoft issues no refresh token at all, and the server would need a
+     manual sign-in for every access token. (It sits in the **OpenID
+     permissions** group, together with `openid` and `profile`, which the
+     token script also requests.)
    - `Mail.Read`
    - `Mail.ReadWrite`
-   - `Mail.Send`
    - `MailboxSettings.ReadWrite` (for categories and Inbox rules; flags work with `Mail.ReadWrite` alone)
-5. Click **Grant admin consent** (if you're in an organization)
+5. Click **Grant admin consent** if you're in an organization. For a
+   personal Microsoft account there is no admin consent — you grant these
+   permissions yourself on the consent screen during the token step below.
 
-### 4. Get Your Credentials
+`Mail.Send` is **not** needed: the server has no send tool, and neither
+the token script nor the refresh flow requests it.
+
+### 5. Get Your Credentials
 
 From your app registration overview page, copy:
 - **Application (client) ID** → `OUTLOOK_CLIENT_ID`
 - **Directory (tenant) ID** → `OUTLOOK_TENANT_ID` (or use "common")
 
-### 5. Get Refresh Token (for user login)
+### 6. Get Refresh Token (one-time, seeds unattended refresh)
 
-You'll need to perform a one-time authorization flow. Use this script:
+This is the **only manual sign-in in the whole setup**. The script starts
+a temporary server on `http://localhost:3000/callback` (the redirect URI
+from step 2), opens your browser, captures the authorization code, and
+exchanges it for a refresh token. Sign in with the account whose mailbox
+the server will access, and accept the permissions from step 4 on the
+consent screen.
+
+Put `OUTLOOK_CLIENT_ID` and `OUTLOOK_CLIENT_SECRET` in `.env` first,
+then run:
 
 ```bash
 # Generate auth URL
@@ -67,14 +98,15 @@ node scripts/get-auth-token.js
 
 # Or, with no cloning, using the published package:
 npx --package=@web4w3/outlook-mcp-server outlook-mcp-server-get-auth-token
-
-# Follow the link to login and copy the authorization code
-# Then exchange it for a refresh token
 ```
 
-Or use the Microsoft Graph explorer at https://developer.microsoft.com/en-us/graph/graph-explorer
+Copy the printed `OUTLOOK_REFRESH_TOKEN=…` line into `.env`. From that
+moment the server refreshes and rotates the token by itself — see
+[Token lifecycle](#token-lifecycle). You only repeat this step if the
+stored token dies (revoked, or unused for ~90 days) or after adding new
+API permissions that the token must carry.
 
-### 6. Install
+### 7. Install
 
 ```bash
 npx -y @web4w3/outlook-mcp-server
@@ -82,7 +114,7 @@ npx -y @web4w3/outlook-mcp-server
 
 No cloning or build step needed. The package is pre-compiled and available on npm as [`@web4w3/outlook-mcp-server`](https://www.npmjs.com/package/@web4w3/outlook-mcp-server).
 
-### 7. Configure in Claude Desktop
+### 8. Configure in Claude Desktop
 
 Add to your `claude_desktop_config.json`:
 
@@ -156,6 +188,34 @@ Operational notes: keep the state file on durable storage (for a
 systemd deployment, the service's working directory), and do not copy
 an old state file over a newer one — the older refresh token in it may
 already be invalidated.
+
+### Enabling unattended refresh on a server
+
+Checklist for an always-on deployment (v1.0.6 or later — the version
+that ships the token manager):
+
+1. Complete the app registration exactly as in steps 1–5 above; the
+   `offline_access` permission and the `http://localhost:3000/callback`
+   redirect URI are the two pieces unattended refresh depends on.
+2. Mint the seed token once (step 6) **after** all permissions are in
+   place, and put it in the server's `.env` as `OUTLOOK_REFRESH_TOKEN`.
+3. Point `OUTLOOK_TOKEN_STATE_PATH` at durable storage — an absolute
+   path is safest under systemd, e.g.
+   `OUTLOOK_TOKEN_STATE_PATH=/home/<user>/outlook-mcp-server/data/refresh-token.json`.
+   The default (`data/refresh-token.json` in the working directory) is
+   fine when the working directory itself is durable. The service user
+   needs write access to that directory.
+4. Start (or restart) the server. On the first refresh that returns a
+   rotated token, the state file appears (mode `0600`) and stderr logs
+   `refresh token rotated; new token persisted`.
+5. Verify after ~1 hour of uptime: the state file's `updatedAt` is
+   fresh. From then on the chain is self-sustaining — access tokens
+   refresh about hourly, every rotation is persisted, and restarts
+   resume from the state file. A refresh token dies of old age only
+   after ~90 days **unused**, which a running server never lets happen.
+6. Run **one** server instance per mailbox against a given state file:
+   two instances rotating the same token chain race each other, and the
+   loser's stored token may be the superseded one.
 
 ## Available Tools
 
@@ -377,6 +437,7 @@ Check that all required `.env` variables are set correctly.
 
 ### "Permission denied"
 Make sure the API permissions in your Azure app registration include:
+- offline_access (without it no refresh token is issued at all)
 - Mail.Read
 - Mail.ReadWrite
 - MailboxSettings.ReadWrite (categories and Inbox rules only; if this one is
