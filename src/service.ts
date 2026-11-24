@@ -7,7 +7,9 @@ import type {
   MailCategory,
   CategorizeUpdate,
   CreateRuleInput,
-  MailRule
+  MailRule,
+  CreateDraftInput,
+  DraftSummary
 } from "./types/email.js";
 import type { EmailClient } from "./clients/client.js";
 import { GraphEmailClient } from "./clients/graphClient.js";
@@ -84,5 +86,13 @@ export class OutlookService {
 
   deleteRule(ruleId: string): Promise<void> {
     return this.graphClient.deleteRule(ruleId);
+  }
+
+  createDraft(input: CreateDraftInput): Promise<DraftSummary> {
+    return this.graphClient.createDraft(input);
+  }
+
+  createReplyDraft(id: string, body: string): Promise<DraftSummary> {
+    return this.graphClient.createReplyDraft(id, body);
   }
 }

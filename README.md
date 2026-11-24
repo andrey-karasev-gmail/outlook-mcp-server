@@ -13,6 +13,7 @@ A Model Context Protocol (MCP) server for accessing and managing Outlook.com ema
 - **Flags**: Set, complete, or clear follow-up flags (with optional due dates)
 - **Categories**: List/create categories and apply them to emails
 - **Inbox rules**: List, create, and delete server-side Inbox rules
+- **Drafts**: Create new draft emails and reply drafts in Drafts (never sent)
 
 ## Setup
 
@@ -393,6 +394,30 @@ Delete an Inbox rule by its ID (see `outlook_list_rules`).
 - `ruleId` (string, required): Rule ID
 
 **Returns:** Confirmation message
+
+---
+
+### `outlook_create_draft`
+Create a draft email in the Drafts folder. The message is never sent; the body is plain text so line breaks are preserved.
+
+**Parameters:**
+- `subject` (string, required): Draft subject
+- `toRecipients` (string[], required): Recipient email addresses
+- `ccRecipients` (string[], optional): CC email addresses
+- `body` (string, required): Plain-text body
+
+**Returns:** The created draft (`id`, `subject`, `toAddresses`, `conversationId`, `isDraft`)
+
+---
+
+### `outlook_create_reply_draft`
+Create a reply draft to an existing email. The draft keeps the thread (`Re:` subject, same conversation) and its body is replaced with the given plain-text reply. The message is never sent.
+
+**Parameters:**
+- `id` (string, required): ID of the original message
+- `body` (string, required): Plain-text reply body
+
+**Returns:** The created reply draft (`id`, `subject`, `toAddresses`, `conversationId`, `isDraft`)
 
 ---
 

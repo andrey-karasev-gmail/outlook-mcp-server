@@ -337,6 +337,45 @@ function createOutlookServer(): McpServer {
     }
   );
 
+  // Create a draft message in Drafts (never sent)
+  server.tool(
+    "outlook_create_draft",
+    "Create a draft email in Drafts (never sent). Body is plain text so line breaks are preserved",
+    {
+      subject: z.string().min(1),
+      toRecipients: z.array(z.string().min(1)).min(1),
+      ccRecipients: z.array(z.string().min(1)).optional(),
+      body: z.string().min(1)
+    },
+    async ({ subject, toRecipients, ccRecipients, body }) => {
+      const draft = await service.createDraft({
+        subject,
+        toRecipients,
+        ccRecipients,
+        body
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(draft, null, 2) }]
+      };
+    }
+  );
+
+  // Create a reply draft to an existing email (never sent)
+  server.tool(
+    "outlook_create_reply_draft",
+    "Create a reply draft to an existing email (never sent). The draft keeps the thread (Re: subject, same conversation) and its body is replaced with the given plain-text reply",
+    {
+      id: z.string().min(1),
+      body: z.string().min(1)
+    },
+    async ({ id, body }) => {
+      const draft = await service.createReplyDraft(id, body);
+      return {
+        content: [{ type: "text", text: JSON.stringify(draft, null, 2) }]
+      };
+    }
+  );
+
   return server;
 }
 

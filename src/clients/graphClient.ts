@@ -13,7 +13,9 @@ import type {
   MailCategory,
   CategorizeUpdate,
   CreateRuleInput,
-  MailRule
+  MailRule,
+  CreateDraftInput,
+  DraftSummary
 } from "../types/email.js";
 import type { EmailClient, EmailAttachment } from "./client.js";
 import type { OutlookConfig } from "../config.js";
@@ -344,6 +346,38 @@ export class GraphEmailClient implements EmailClient {
     }
   }
 
+  async createDraft(input: CreateDraftInput): Promise<DraftSummary> {
+    try {
+      const created = await this.graphClient.api("/me/messages").post({
+        subject: input.subject,
+        toRecipients: input.toRecipients.map((address) => ({
+          emailAddress: { address }
+        })),
+        ccRecipients: (input.ccRecipients ?? []).map((address) => ({
+          emailAddress: { address }
+        })),
+        body: { contentType: "text", content: input.body }
+      });
+      return this.mapToDraftSummary(created);
+    } catch (error) {
+      throw new Error(`Failed to create draft: ${error}`);
+    }
+  }
+
+  async createReplyDraft(id: string, body: string): Promise<DraftSummary> {
+    try {
+      const draft = await this.graphClient
+        .api(`/me/messages/${id}/createReply`)
+        .post({});
+      const updated = await this.graphClient
+        .api(`/me/messages/${draft.id}`)
+        .patch({ body: { contentType: "text", content: body } });
+      return this.mapToDraftSummary(updated);
+    } catch (error) {
+      throw new Error(`Failed to create reply draft for ${id}: ${error}`);
+    }
+  }
+
   async getAttachments(messageId: string): Promise<AttachmentSummary[]> {
     try {
       const attachments = await this.graphClient
@@ -388,6 +422,19 @@ export class GraphEmailClient implements EmailClient {
         `Failed to get attachment ${attachmentId} content: ${error}`
       );
     }
+  }
+
+  private mapToDraftSummary(msg: any): DraftSummary {
+    return {
+      id: msg.id,
+      subject: msg.subject || "(no subject)",
+      toAddresses:
+        msg.toRecipients
+          ?.map((r: any) => r.emailAddress?.address)
+          .filter(Boolean) || [],
+      conversationId: msg.conversationId,
+      isDraft: msg.isDraft ?? true
+    };
   }
 
   private mapToMailRule(rule: any): MailRule {

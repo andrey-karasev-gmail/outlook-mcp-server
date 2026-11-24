@@ -98,3 +98,20 @@ export interface MailRule {
 export interface EmailAttachment extends AttachmentSummary {
   contentBytes?: string;
 }
+
+/** Input for creating a new draft message (never sent). */
+export interface CreateDraftInput {
+  subject: string;
+  toRecipients: string[];
+  ccRecipients?: string[];
+  body: string;
+}
+
+/** A draft message created in Drafts. */
+export interface DraftSummary {
+  id: string;
+  subject: string;
+  toAddresses: string[];
+  conversationId?: string;
+  isDraft: boolean;
+}

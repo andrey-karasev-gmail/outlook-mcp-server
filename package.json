@@ -1,7 +1,7 @@
 {
   "name": "@web4w3/outlook-mcp-server",
-  "version": "1.0.7",
-  "description": "MCP server for Outlook.com email read/delete/mark operations via Microsoft Graph API",
+  "version": "1.1.0",
+  "description": "MCP server for Outlook.com email read/delete/mark/draft operations via Microsoft Graph API",
   "type": "module",
   "main": "dist/index.js",
   "bin": {

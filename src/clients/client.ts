@@ -6,7 +6,9 @@ import type {
   MailCategory,
   CategorizeUpdate,
   CreateRuleInput,
-  MailRule
+  MailRule,
+  CreateDraftInput,
+  DraftSummary
 } from "../types/email.js";
 
 export interface EmailClient {
@@ -25,6 +27,8 @@ export interface EmailClient {
   listRules(): Promise<MailRule[]>;
   createRule(rule: CreateRuleInput): Promise<MailRule>;
   deleteRule(ruleId: string): Promise<void>;
+  createDraft(input: CreateDraftInput): Promise<DraftSummary>;
+  createReplyDraft(id: string, body: string): Promise<DraftSummary>;
 }
 
 export interface EmailAttachment extends AttachmentSummary {
