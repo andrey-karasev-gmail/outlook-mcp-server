@@ -340,19 +340,29 @@ function createOutlookServer(): McpServer {
   // Create a draft message in Drafts (never sent)
   server.tool(
     "outlook_create_draft",
-    "Create a draft email in Drafts (never sent). Body is plain text so line breaks are preserved",
+    "Create a draft email in Drafts (never sent). Body is plain text so line breaks are preserved. Optional attachments are file attachments ({name, contentType, contentBytes as base64}); the whole request must stay under Graph's ~3 MB limit, so larger files need an upload session instead",
     {
       subject: z.string().min(1),
       toRecipients: z.array(z.string().min(1)).min(1),
       ccRecipients: z.array(z.string().min(1)).optional(),
-      body: z.string().min(1)
+      body: z.string().min(1),
+      attachments: z
+        .array(
+          z.object({
+            name: z.string().min(1),
+            contentType: z.string().min(1),
+            contentBytes: z.string().min(1)
+          })
+        )
+        .optional()
     },
-    async ({ subject, toRecipients, ccRecipients, body }) => {
+    async ({ subject, toRecipients, ccRecipients, body, attachments }) => {
       const draft = await service.createDraft({
         subject,
         toRecipients,
         ccRecipients,
-        body
+        body,
+        attachments
       });
       return {
         content: [{ type: "text", text: JSON.stringify(draft, null, 2) }]

@@ -405,6 +405,7 @@ Create a draft email in the Drafts folder. The message is never sent; the body i
 - `toRecipients` (string[], required): Recipient email addresses
 - `ccRecipients` (string[], optional): CC email addresses
 - `body` (string, required): Plain-text body
+- `attachments` (optional): File attachments, each `{name, contentType, contentBytes}` where `contentBytes` is the file's base64 content. Attachments are created inline with the draft, so the whole request (body + all attachments) must stay under Graph's ~3 MB limit; larger files need an upload session instead.
 
 **Returns:** The created draft (`id`, `subject`, `toAddresses`, `conversationId`, `isDraft`)
 

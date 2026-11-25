@@ -356,7 +356,17 @@ export class GraphEmailClient implements EmailClient {
         ccRecipients: (input.ccRecipients ?? []).map((address) => ({
           emailAddress: { address }
         })),
-        body: { contentType: "text", content: input.body }
+        body: { contentType: "text", content: input.body },
+        ...(input.attachments?.length
+          ? {
+              attachments: input.attachments.map((att) => ({
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                name: att.name,
+                contentType: att.contentType,
+                contentBytes: att.contentBytes
+              }))
+            }
+          : {})
       });
       return this.mapToDraftSummary(created);
     } catch (error) {
