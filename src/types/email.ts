@@ -99,12 +99,23 @@ export interface EmailAttachment extends AttachmentSummary {
   contentBytes?: string;
 }
 
+/** A file to attach to a draft: `contentBytes` is the file's base64 content.
+ * Attachments are created inline with the draft, so the whole request
+ * (body + all attachments) must stay under Graph's ~3 MB limit; larger
+ * files need an upload session instead. */
+export interface DraftAttachmentInput {
+  name: string;
+  contentType: string;
+  contentBytes: string;
+}
+
 /** Input for creating a new draft message (never sent). */
 export interface CreateDraftInput {
   subject: string;
   toRecipients: string[];
   ccRecipients?: string[];
   body: string;
+  attachments?: DraftAttachmentInput[];
 }
 
 /** A draft message created in Drafts. */
